@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/go-cleaner.iml" filepath="$PROJECT_DIR$/.idea/go-cleaner.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/goktor.iml" filepath="$PROJECT_DIR$/.idea/goktor.iml" />
     </modules>
   </component>
 </project>

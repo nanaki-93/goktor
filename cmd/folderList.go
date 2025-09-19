@@ -5,7 +5,8 @@ package cmd
 
 import (
 	"fmt"
-	"go-cleaner/service"
+
+	"github.com/nanaki-93/goktor/service"
 
 	"github.com/spf13/cobra"
 )

@@ -1,10 +1,9 @@
 /*
 Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-
 */
 package main
 
-import "go-cleaner/cmd"
+import "github.com/nanaki-93/goktor/cmd"
 
 func main() {
 	cmd.Execute()

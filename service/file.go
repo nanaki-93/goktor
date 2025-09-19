@@ -2,7 +2,8 @@ package service
 
 import (
 	"fmt"
-	"go-cleaner/model"
+	"github.com/nanaki-93/goktor/model"
+
 	"os"
 	"path/filepath"
 	"sort"
