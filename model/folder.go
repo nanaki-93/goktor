@@ -27,3 +27,18 @@ type Directory struct {
 	SubDirs []Directory
 	Files   []FileSystem
 }
+
+func (d *Directory) FlattenDirectory() []Directory {
+	var result []Directory
+	result = append(result, *d)
+	for _, subDir := range d.SubDirs {
+		result = append(result, subDir.FlattenDirectory()...)
+	}
+	return result
+}
+
+type BySize []Directory
+
+func (a BySize) Len() int           { return len(a) }
+func (a BySize) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a BySize) Less(i, j int) bool { return a[i].Size > a[j].Size }

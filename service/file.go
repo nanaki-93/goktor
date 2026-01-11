@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+
 	"github.com/nanaki-93/goktor/model"
 
 	"os"
@@ -11,7 +12,7 @@ import (
 )
 
 const OneGb = 1024 * 1024 * 1024
-const ONE_MB = 1024 * 1024
+const OneMb = 1024 * 1024
 const OneKb = 1024
 
 type FileService interface {
@@ -32,6 +33,9 @@ func NewService() FileService {
 func (*FileSystemService) ListDirectories(path string) (model.Directory, error) {
 	root, err := getDirectoryRecursively(path)
 	if err != nil {
+		if os.IsPermission(err) {
+			return model.Directory{}, err
+		}
 		fmt.Println("Error on dir: "+filepath.Base(path), err)
 		return model.Directory{}, err
 	}
@@ -39,63 +43,75 @@ func (*FileSystemService) ListDirectories(path string) (model.Directory, error) 
 }
 
 func getDirectoryRecursively(path string) (model.Directory, error) {
-	realFileSys, err := os.ReadDir(path)
+	entries, err := os.ReadDir(path)
 	if err != nil {
-		fmt.Println("Error on dir: "+filepath.Base(path), err)
-	}
-
-	dir := model.Directory{}
-	var folderSize int64 = 0
-
-	var subDirPaths []string
-	for _, file := range realFileSys {
-		if !file.IsDir() {
-			subFile := toFileSystemModel(path, file)
-			dir.Files = append(dir.Files, subFile)
-			folderSize += subFile.Size
-		} else {
-			subDirPaths = append(subDirPaths, filepath.Join(path, file.Name()))
+		if !os.IsPermission(err) {
+			fmt.Println("Error on dir: "+filepath.Base(path), err)
 		}
+		return model.Directory{}, err
 	}
 
-	const maxWorkers = 10
-	subDirs := make([]model.Directory, len(subDirPaths))
+	dir, subDirPaths := manageDirEntries(path, entries)
 
 	if len(subDirPaths) > 0 {
-		semaphore := make(chan struct{}, maxWorkers)
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-
-		for i, subPath := range subDirPaths {
-			wg.Add(1)
-			go func(index int, path string) {
-				defer wg.Done()
-				semaphore <- struct{}{}        // Acquire semaphore
-				defer func() { <-semaphore }() // Release semaphore
-
-				subDir, err := getDirectoryRecursively(path)
-				if err != nil {
-					fmt.Println("Error on dir: "+filepath.Base(path), err)
-					return
-				}
-
-				mu.Lock()
-				subDirs[index] = subDir
-				mu.Unlock()
-			}(i, subPath)
-		}
-		wg.Wait()
-
-		// Filter out empty directories (from errors)
-		for _, subDir := range subDirs {
-			if subDir.Name != "" {
-				dir.SubDirs = append(dir.SubDirs, subDir)
-			}
-		}
+		dir.SubDirs = processSubDirectories(subDirPaths)
 	}
-	dir = toDirModel(path, dir, folderSize)
 
 	return dir, nil
+}
+
+func manageDirEntries(path string, entries []os.DirEntry) (model.Directory, []string) {
+	var (
+		dir         model.Directory
+		subDirPaths []string
+		folderSize  int64
+	)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			fileModel := toFileSystemModel(path, entry)
+			dir.Files = append(dir.Files, fileModel)
+			folderSize += fileModel.Size
+		} else {
+			subDirPaths = append(subDirPaths, filepath.Join(path, entry.Name()))
+		}
+	}
+	return toDirModel(path, dir, folderSize), subDirPaths
+}
+
+func processSubDirectories(paths []string) []model.Directory {
+	const maxWorkers = 10
+	results := make([]model.Directory, len(paths))
+	semaphore := make(chan struct{}, maxWorkers)
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for i, subPath := range paths {
+		wg.Add(1)
+		go func(index int, subPath string) {
+			defer wg.Done()
+			semaphore <- struct{}{}        // Acquire semaphore
+			defer func() { <-semaphore }() // Release semaphore
+
+			subDir, err := getDirectoryRecursively(subPath)
+			if err != nil {
+				return
+			}
+
+			mu.Lock()
+			results[index] = subDir
+			mu.Unlock()
+		}(i, subPath)
+	}
+	wg.Wait()
+
+	var filtered []model.Directory
+	for _, dir := range results {
+		if dir.Name != "" {
+			filtered = append(filtered, dir)
+		}
+	}
+	return filtered
 }
 
 func toDirModel(path string, dir model.Directory, folderSize int64) model.Directory {
@@ -129,28 +145,17 @@ func (fs *FileSystemService) PrintDirectories(directories []model.Directory) {
 		fmt.Println("Path:", dir.FullPath)
 		fmt.Println("Size:", dir.GetFormattedSize())
 		fmt.Println("-----")
-
 	}
-
 }
 
 func (*FileSystemService) ListFiles(path string) ([]model.FileSystem, error) {
+	//todo implementation
 	return []model.FileSystem{}, nil
 }
 
-func planeDirectory(m model.Directory, list []model.Directory) []model.Directory {
+func ReorderDirectory(directory model.Directory) []model.Directory {
 
-	list = append(list, m)
-	for _, dir := range m.SubDirs {
-		list = planeDirectory(dir, list)
-	}
-	return list
-}
-func ReorderDirectory(m model.Directory) []model.Directory {
-
-	result := planeDirectory(m, []model.Directory{})
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Size > result[j].Size
-	})
+	result := directory.FlattenDirectory()
+	sort.Sort(model.BySize(result))
 	return result
 }
