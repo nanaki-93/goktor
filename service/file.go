@@ -17,8 +17,10 @@ const OneKb = 1024
 
 type FileService interface {
 	ListDirectories(path string) (model.Directory, error)
+	ListDirectoriesWithFilter(path string, filter func(model.Directory) bool) (model.Directory, error)
 	ListFiles(path string) ([]model.FileSystem, error)
-	PrintDirectories(directories []model.Directory)
+	PrintDirectories(directories []model.Directory, filter func(model.Directory) bool)
+	GetSizeFilter() func(model.Directory) bool
 }
 type FileSystemService struct {
 	limit int64
@@ -31,7 +33,18 @@ func NewService() FileService {
 }
 
 func (*FileSystemService) ListDirectories(path string) (model.Directory, error) {
-	root, err := getDirectoryRecursively(path)
+	root, err := getDirectoryRecursively(path, func(model.Directory) bool { return true })
+	if err != nil {
+		if os.IsPermission(err) {
+			return model.Directory{}, err
+		}
+		fmt.Println("Error on dir: "+filepath.Base(path), err)
+		return model.Directory{}, err
+	}
+	return root, nil
+}
+func (*FileSystemService) ListDirectoriesWithFilter(path string, filter func(model.Directory) bool) (model.Directory, error) {
+	root, err := getDirectoryRecursively(path, filter)
 	if err != nil {
 		if os.IsPermission(err) {
 			return model.Directory{}, err
@@ -42,7 +55,7 @@ func (*FileSystemService) ListDirectories(path string) (model.Directory, error) 
 	return root, nil
 }
 
-func getDirectoryRecursively(path string) (model.Directory, error) {
+func getDirectoryRecursively(path string, filter func(model.Directory) bool) (model.Directory, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		if !os.IsPermission(err) {
@@ -54,10 +67,13 @@ func getDirectoryRecursively(path string) (model.Directory, error) {
 	dir, subDirPaths := manageDirEntries(path, entries)
 
 	if len(subDirPaths) > 0 {
-		dir.SubDirs = processSubDirectories(subDirPaths)
+		dir.SubDirs = processSubDirectories(subDirPaths, filter)
 	}
 
-	return dir, nil
+	if filter(dir) {
+		return dir, nil
+	}
+	return model.Directory{}, nil
 }
 
 func manageDirEntries(path string, entries []os.DirEntry) (model.Directory, []string) {
@@ -78,7 +94,7 @@ func manageDirEntries(path string, entries []os.DirEntry) (model.Directory, []st
 	return toDirModel(path, dir, folderSize), subDirPaths
 }
 
-func processSubDirectories(paths []string) []model.Directory {
+func processSubDirectories(paths []string, filter func(model.Directory) bool) []model.Directory {
 	const maxWorkers = 10
 	results := make([]model.Directory, len(paths))
 	semaphore := make(chan struct{}, maxWorkers)
@@ -93,7 +109,7 @@ func processSubDirectories(paths []string) []model.Directory {
 			semaphore <- struct{}{}        // Acquire semaphore
 			defer func() { <-semaphore }() // Release semaphore
 
-			subDir, err := getDirectoryRecursively(subPath)
+			subDir, err := getDirectoryRecursively(subPath, filter)
 			if err != nil {
 				return
 			}
@@ -107,7 +123,7 @@ func processSubDirectories(paths []string) []model.Directory {
 
 	var filtered []model.Directory
 	for _, dir := range results {
-		if dir.Name != "" {
+		if dir.Name != "" && filter(dir) {
 			filtered = append(filtered, dir)
 		}
 	}
@@ -115,7 +131,7 @@ func processSubDirectories(paths []string) []model.Directory {
 }
 
 func toDirModel(path string, dir model.Directory, folderSize int64) model.Directory {
-	fullPath, _ := filepath.Abs(filepath.Join(path, filepath.Base(path)))
+	fullPath, _ := filepath.Abs(path)
 	dir.FileSystem.Size = folderSize
 	dir.FullPath = fullPath
 	dir.IsDir = true
@@ -136,16 +152,29 @@ func toFileSystemModel(path string, file os.DirEntry) model.FileSystem {
 	return subFile
 }
 
-func (fs *FileSystemService) PrintDirectories(directories []model.Directory) {
+func (fs *FileSystemService) PrintDirectories(directories []model.Directory, filter func(model.Directory) bool) {
 	for _, dir := range directories {
-		if dir.Size < fs.limit {
-			continue
+		if filter(dir) {
+			fmt.Println("Name:", dir.Name)
+			fmt.Println("Path:", dir.FullPath)
+			fmt.Println("Size:", dir.GetFormattedSize())
+			fmt.Println("-----")
 		}
-		fmt.Println("Name:", dir.Name)
-		fmt.Println("Path:", dir.FullPath)
-		fmt.Println("Size:", dir.GetFormattedSize())
-		fmt.Println("-----")
 	}
+}
+func (fs *FileSystemService) GetSizeFilter() func(model.Directory) bool {
+	return func(dir model.Directory) bool {
+		return dir.Size > fs.limit
+	}
+}
+
+func WithGitFile(file model.Directory) bool {
+	for _, d := range file.SubDirs {
+		if d.Name == ".git" {
+			return true
+		}
+	}
+	return false
 }
 
 func (*FileSystemService) ListFiles(path string) ([]model.FileSystem, error) {
