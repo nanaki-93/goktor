@@ -4,6 +4,7 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -31,6 +32,7 @@ var updateRemoteCmd = &cobra.Command{
 	Short: "A brief description of your command",
 	Long:  `Update the remote repositories for all git projects in the specified directory.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		ctx := context.Background()
 		fmt.Println("update-remote called")
 
 		newRemoteValue := cmd.Flag("new-remote").Value.String()
@@ -49,7 +51,7 @@ var updateRemoteCmd = &cobra.Command{
 				fmt.Println("processing dir:", entry.Name())
 				absPath := currDir + string(os.PathSeparator) + entry.Name()
 
-				err = gs.UpdateRemote(absPath, newRemoteValue)
+				err = gs.UpdateRemote(ctx, absPath, newRemoteValue)
 				if err != nil {
 					fmt.Println("error updating remote for the repository:", absPath, err)
 				}
