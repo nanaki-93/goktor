@@ -4,9 +4,21 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3ff5c007-744a-47d2-bf7c-00edf2cb5a08" name="Changes" comment="name changed">
+    <list default="true" id="3ff5c007-744a-47d2-bf7c-00edf2cb5a08" name="Changes" comment="renamed file-list file">
+      <change afterPath="$PROJECT_DIR$/cmd/file_list.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/cmd/file_list_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/cmd/folder_list.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/cmd/mr_repo.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/cmd/mr_repo_update_remote.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/service/file_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/service/logger.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/mr-repo.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/mr-repo.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmd/file-list.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmd/folder-list.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmd/mr-repo.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmd/root.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/root.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/service/file.go" beforeDir="false" afterPath="$PROJECT_DIR$/service/file.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/service/git.go" beforeDir="false" afterPath="$PROJECT_DIR$/service/git.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -30,7 +42,7 @@
       </list>
     </option>
   </component>
-  <component name="GOROOT" url="file://C:/Program Files/Go" />
+  <component name="GOROOT" url="file://$USER_HOME$/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.2.windows-amd64" />
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
@@ -42,10 +54,14 @@
 }</component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/nanaki-93/goktor.git&quot;,
-    &quot;accountId&quot;: &quot;872f1934-9168-41a4-84a7-06964470278c&quot;
+    &quot;url&quot;: &quot;https://github.com/nanaki-93/go-cleaner.git&quot;,
+    &quot;accountId&quot;: &quot;598a233c-b0b3-46c5-b4ec-130e6c5e402d&quot;
   }
 }</component>
+  <component name="KubernetesApiPersistence"><![CDATA[{}]]></component>
+  <component name="KubernetesApiProvider"><![CDATA[{
+  "isMigrated": true
+}]]></component>
   <component name="McpProjectServerCommands">
     <commands />
     <urls />
@@ -63,6 +79,10 @@
     "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "DefaultGoTemplateProperty": "Go File",
     "Go Build.go build github.com/nanaki-93/goktor.executor": "Debug",
+    "Go Test.TestFileListCmd/nonexistent_directory in github.com/nanaki-93/goktor/cmd.executor": "Debug",
+    "Go Test.TestFileSystemService_ConcurrentSubDirectoryProcessing in github.com/nanaki-93/goktor/service.executor": "Run",
+    "Go Test.TestFileSystemService_ProcessSubDirectoriesRecursively/permission_denied_on_subdirectory in github.com/nanaki-93/goktor/service.executor": "Run",
+    "Go Test.TestFileSystemService_ProcessSubDirectoriesRecursively/single_level_subdirectories in github.com/nanaki-93/goktor/service.executor": "Debug",
     "Go Test.go test goktor.executor": "Run",
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.GoLinterPluginOnboarding": "true",
@@ -76,6 +96,7 @@
     "RunOnceActivity.go.migrated.go.modules.settings": "true",
     "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "auto.test.manager.delay": "10000",
     "git-widget-placeholder": "main",
     "go.import.settings.migrated": "true",
@@ -84,7 +105,7 @@
     "node.js.detected.package.eslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "preferences.keymap"
+    "settings.editor.selected.configurable": "go"
   }
 }]]></component>
   <component name="RecapSpentCounter">
@@ -172,7 +193,29 @@
     <MESSAGE value="name changed" />
     <MESSAGE value="project config" />
     <MESSAGE value="wip some refactor and wip command for git update" />
-    <option name="LAST_COMMIT_MESSAGE" value="wip some refactor and wip command for git update" />
+    <MESSAGE value="renamed file-list file" />
+    <option name="LAST_COMMIT_MESSAGE" value="renamed file-list file" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" type="DlvLineBreakpoint">
+          <url>file://$PROJECT_DIR$/service/file_test.go</url>
+          <line>35</line>
+          <option name="timeStamp" value="3" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="DlvLineBreakpoint">
+          <url>file://$PROJECT_DIR$/service/file.go</url>
+          <line>165</line>
+          <option name="timeStamp" value="4" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="DlvLineBreakpoint">
+          <url>file://$PROJECT_DIR$/cmd/file_list.go</url>
+          <line>19</line>
+          <option name="timeStamp" value="5" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

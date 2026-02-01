@@ -22,27 +22,14 @@ type UpdateResult struct {
 
 // GitService defines operations for git repositories
 type GitService interface {
-	// UpdateAllBranchesProject aligns all local branches with remote (except current branch)
 	UpdateAllBranchesProject(ctx context.Context, path string) (*UpdateResult, error)
-
-	// UpdateRemote changes the origin remote URL and verifies connectivity
 	UpdateRemote(ctx context.Context, path string, newRemote string) error
-
-	// FetchLatest fetches latest updates from remote without modifying branches
 	FetchLatest(ctx context.Context, path string) error
 }
 
 // GitModelService implements GitService
 type GitModelService struct {
 	logger Logger
-}
-
-// Logger interface for flexible logging
-type Logger interface {
-	Info(msg string, args ...interface{})
-	Warn(msg string, args ...interface{})
-	Error(msg string, args ...interface{})
-	Debug(msg string, args ...interface{})
 }
 
 // NewGitService creates a new git service with default logger
@@ -66,7 +53,11 @@ func (gs *GitModelService) FetchLatest(ctx context.Context, repoPath string) err
 		return fmt.Errorf("failed to open repo: %w", err)
 	}
 
-	err = repo.FetchContext(ctx, &git.FetchOptions{
+	return gs.fetch(ctx, repo)
+}
+
+func (gs *GitModelService) fetch(ctx context.Context, repo *git.Repository) error {
+	err := repo.FetchContext(ctx, &git.FetchOptions{
 		RemoteName: "origin",
 		Force:      true,
 		Tags:       git.AllTags,
@@ -94,21 +85,14 @@ func (gs *GitModelService) UpdateAllBranchesProject(ctx context.Context, repoPat
 
 	// Fetch latest updates from remote
 	gs.logger.Info("fetching latest updates from remote")
-	err = repo.FetchContext(ctx, &git.FetchOptions{
-		RemoteName: "origin",
-		Force:      true,
-		Tags:       git.AllTags,
-	})
-	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
-		return nil, fmt.Errorf("fetch failed: %w", err)
+	if err := gs.fetch(ctx, repo); err != nil {
+		return nil, err
 	}
 
-	// Get current branch to protect it
-	head, err := repo.Head()
+	currentBranch, err := gs.getCurrentBranch(repo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get HEAD: %w", err)
+		return nil, err
 	}
-	currentBranch := head.Name().Short()
 	gs.logger.Info("protecting current branch", "branch", currentBranch)
 
 	branches, err := repo.Branches()
@@ -139,38 +123,14 @@ func (gs *GitModelService) UpdateAllBranchesProject(ctx context.Context, repoPat
 			return nil
 		}
 
-		// Get remote tracking branch
-		remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branchName), true)
-		if err != nil {
-			gs.logger.Warn("remote tracking branch not found", "branch", branchName)
-			result.Skipped = append(result.Skipped, branchName)
-			return nil
-		}
-
-		// Checkout branch
-		if err := worktree.Checkout(&git.CheckoutOptions{
-			Branch: ref.Name(),
-			Force:  false,
-		}); err != nil {
-			gs.logger.Error("failed to checkout branch", "branch", branchName, "error", err)
+		if err := gs.updateBranch(repo, worktree, branchName, ref, result); err != nil {
 			result.Failed = append(result.Failed, branchName)
+			gs.logger.Error("failed to update branch", "branch", branchName, "error", err)
 			return nil
 		}
-
-		// Reset to remote
-		if err := worktree.Reset(&git.ResetOptions{
-			Mode:   git.HardReset,
-			Commit: remoteRef.Hash(),
-		}); err != nil {
-			gs.logger.Error("failed to reset branch", "branch", branchName, "error", err)
-			result.Failed = append(result.Failed, branchName)
-			return nil
-		}
-
-		gs.logger.Info("branch updated", "branch", branchName)
-		result.Updated = append(result.Updated, branchName)
 		return nil
 	})
+
 	if err != nil {
 		return nil, fmt.Errorf("failed processing branches: %w", err)
 	}
@@ -190,6 +150,42 @@ func (gs *GitModelService) UpdateAllBranchesProject(ctx context.Context, repoPat
 	return result, nil
 }
 
+func (gs *GitModelService) getCurrentBranch(repo *git.Repository) (string, error) {
+	head, err := repo.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+	return head.Name().Short(), nil
+}
+
+// updateBranch updates a single branch
+func (gs *GitModelService) updateBranch(repo *git.Repository, worktree *git.Worktree, branchName string, ref *plumbing.Reference, result *UpdateResult) error {
+	remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branchName), true)
+	if err != nil {
+		gs.logger.Warn("remote tracking branch not found", "branch", branchName)
+		result.Skipped = append(result.Skipped, branchName)
+		return nil
+	}
+
+	if err := worktree.Checkout(&git.CheckoutOptions{
+		Branch: ref.Name(),
+		Force:  false,
+	}); err != nil {
+		return err
+	}
+
+	if err := worktree.Reset(&git.ResetOptions{
+		Mode:   git.HardReset,
+		Commit: remoteRef.Hash(),
+	}); err != nil {
+		return err
+	}
+
+	gs.logger.Info("branch updated", "branch", branchName)
+	result.Updated = append(result.Updated, branchName)
+	return nil
+}
+
 // UpdateRemote updates the origin remote URL and verifies connectivity
 func (gs *GitModelService) UpdateRemote(ctx context.Context, repoPath string, newRemote string) error {
 	repo, err := git.PlainOpen(repoPath)
@@ -199,32 +195,6 @@ func (gs *GitModelService) UpdateRemote(ctx context.Context, repoPath string, ne
 
 	gs.logger.Info("updating remote", "repo", repoPath)
 
-	remotes, err := repo.Remotes()
-	if err != nil {
-		return fmt.Errorf("failed to list remotes: %w", err)
-	}
-
-	var originRemote *git.Remote
-	for _, r := range remotes {
-		if r.Config().Name == "origin" {
-			originRemote = r
-			break
-		}
-	}
-
-	if originRemote == nil {
-		return fmt.Errorf("remote 'origin' not found")
-	}
-
-	// Store old remote for rollback
-	oldRemote := originRemote.Config().URLs[0]
-	gs.logger.Debug("current remote", "url", oldRemote)
-
-	// Update remote URL
-	projectName, _, newRemoteURL := parseRemoteURL(newRemote, oldRemote)
-	gs.logger.Debug("new remote URL", "url", newRemoteURL, "project", projectName)
-
-	// Update config
 	cfg, err := repo.Storer.Config()
 	if err != nil {
 		return fmt.Errorf("failed to get config: %w", err)
@@ -235,27 +205,22 @@ func (gs *GitModelService) UpdateRemote(ctx context.Context, repoPath string, ne
 		return fmt.Errorf("remote 'origin' not found in config")
 	}
 
-	remoteCfg.URLs = []string{newRemoteURL}
+	oldRemote := remoteCfg.URLs[0]
+	newRemoteURL := parseRemoteURL(newRemote, oldRemote)
 
+	gs.logger.Debug("updating remote", "from", oldRemote, "to", newRemoteURL)
+
+	remoteCfg.URLs = []string{newRemoteURL}
 	if err := repo.Storer.SetConfig(cfg); err != nil {
 		return fmt.Errorf("failed to set config: %w", err)
 	}
 
-	// Verify connectivity
 	gs.logger.Info("verifying remote connectivity")
-	err = repo.FetchContext(ctx, &git.FetchOptions{
-		RemoteName: "origin",
-		Force:      true,
-	})
-	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
-		gs.logger.Error("fetch failed, rolling back", "error", err)
-
-		// Rollback
+	if err := gs.fetch(ctx, repo); err != nil {
 		remoteCfg.URLs = []string{oldRemote}
-		if err := repo.Storer.SetConfig(cfg); err != nil {
-			return fmt.Errorf("rollback failed: %w", err)
+		if rollbackErr := repo.Storer.SetConfig(cfg); rollbackErr != nil {
+			return fmt.Errorf("fetch failed and rollback failed: fetch=%w, rollback=%w", err, rollbackErr)
 		}
-
 		return fmt.Errorf("fetch failed, rollback completed: %w", err)
 	}
 
@@ -264,13 +229,12 @@ func (gs *GitModelService) UpdateRemote(ctx context.Context, repoPath string, ne
 }
 
 // parseRemoteURL handles both HTTP URLs and local file paths
-func parseRemoteURL(newRemote string, oldRemote string) (projectName, oldRemoteBase, newRemoteURL string) {
-	isURL := isHTTPRemote(oldRemote)
+func parseRemoteURL(newRemote string, oldRemote string) string {
 
-	if isURL {
-		return manageRemoteURL(newRemote, oldRemote)
+	if isHTTPRemote(oldRemote) {
+		return buildHTTPRemote(newRemote, oldRemote)
 	}
-	return manageRemoteLocal(newRemote, oldRemote)
+	return buildLocalRemote(newRemote, oldRemote)
 }
 
 // isHTTPRemote checks if the remote is an HTTP(S) URL
@@ -281,43 +245,14 @@ func isHTTPRemote(remote string) bool {
 		strings.HasPrefix(remote, "ssh://")
 }
 
-// manageRemoteLocal handles local file path remotes
-func manageRemoteLocal(newRemote string, oldRemote string) (string, string, string) {
+// buildLocalRemote constructs local file path remote
+func buildLocalRemote(newRemote string, oldRemote string) string {
 	projectName := filepath.Base(oldRemote)
-	oldRemoteBase := oldRemote[:len(oldRemote)-len(projectName)]
-	oldRemoteBase = filepath.Clean(oldRemoteBase)
-	return projectName, oldRemoteBase, filepath.Join(newRemote, projectName)
+	return filepath.Join(newRemote, projectName)
 }
 
 // manageRemoteURL handles HTTP(S) URL remotes
-func manageRemoteURL(newRemote string, oldRemote string) (string, string, string) {
-	projectName := path.Base(oldRemote)
-	oldRemoteBase := oldRemote[:len(oldRemote)-len(projectName)]
-	if len(oldRemoteBase) > 0 && oldRemoteBase[len(oldRemoteBase)-1] == '/' {
-		oldRemoteBase = oldRemoteBase[:len(oldRemoteBase)-1]
-	}
-	// Remove .git suffix if present
-	if strings.HasSuffix(projectName, ".git") {
-		projectName = projectName[:len(projectName)-4]
-	}
-	return projectName, oldRemoteBase, newRemote + "/" + projectName + ".git"
-}
-
-// DefaultLogger implements Logger interface using fmt
-type DefaultLogger struct{}
-
-func (l *DefaultLogger) Info(msg string, args ...interface{}) {
-	fmt.Printf("ℹ [INFO] %s %v\n", msg, args)
-}
-
-func (l *DefaultLogger) Warn(msg string, args ...interface{}) {
-	fmt.Printf("⚠ [WARN] %s %v\n", msg, args)
-}
-
-func (l *DefaultLogger) Error(msg string, args ...interface{}) {
-	fmt.Printf("✗ [ERROR] %s %v\n", msg, args)
-}
-
-func (l *DefaultLogger) Debug(msg string, args ...interface{}) {
-	fmt.Printf("🔍 [DEBUG] %s %v\n", msg, args)
+func buildHTTPRemote(newRemote string, oldRemote string) string {
+	projectName := path.Base(strings.TrimSuffix(oldRemote, ".git"))
+	return newRemote + "/" + projectName + ".git"
 }
