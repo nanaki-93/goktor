@@ -42,7 +42,7 @@ var fileListCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(fileListCmd)
+	RootCmd.AddCommand(fileListCmd)
 	fileListCmd.Flags().StringP("dir", "d", "", "Directory to scan (defaults to current directory)")
 
 }

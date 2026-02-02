@@ -1,4 +1,4 @@
-package cmd
+package mr_repo
 
 import (
 	"context"
@@ -44,7 +44,7 @@ var updateRemoteCmd = &cobra.Command{
 			absPath := filepath.Join(currDir, entry.Name())
 
 			if err := gs.UpdateRemote(context.Background(), absPath, newRemote); err != nil {
-				fmt.Printf("failed to update remote for repository %s: %v\n", absPath, err)
+				return fmt.Errorf("failed to update remote for repository %s: %v\n", absPath, err)
 			}
 		}
 		return nil
@@ -52,6 +52,6 @@ var updateRemoteCmd = &cobra.Command{
 }
 
 func init() {
-	mrRepo.AddCommand(updateRemoteCmd)
+	rootCmd.AddCommand(updateRemoteCmd)
 	updateRemoteCmd.Flags().StringP("new-remote", "a", "", "New remote URL (required)")
 }

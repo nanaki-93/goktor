@@ -51,8 +51,8 @@ func TestFileListCmd(t *testing.T) {
 			tmpDir := tt.setup(t)
 
 			output := &bytes.Buffer{}
-			rootCmd.SetOut(output)
-			rootCmd.SetErr(output)
+			RootCmd.SetOut(output)
+			RootCmd.SetErr(output)
 
 			var finalArgs []string
 			finalArgs = append(finalArgs, tt.args...)
@@ -60,9 +60,9 @@ func TestFileListCmd(t *testing.T) {
 				finalArgs = append(finalArgs, tmpDir)
 			}
 
-			rootCmd.SetArgs(finalArgs)
+			RootCmd.SetArgs(finalArgs)
 
-			err := rootCmd.Execute()
+			err := RootCmd.Execute()
 
 			if tt.wantErr {
 				assert.Error(t, err)

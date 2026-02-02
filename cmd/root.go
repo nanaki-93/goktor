@@ -12,8 +12,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
+// RootCmd represents the base command when called without any subcommands
+var RootCmd = &cobra.Command{
 	Use:   "goktor",
 	Short: "A CLI tool for managing directories and repositories",
 	Long: `Goktor is a command-line utility for analyzing directory structures,
@@ -21,12 +21,12 @@ listing files and their sizes, and managing multiple git repositories.`,
 }
 
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	if err := RootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func init() {
-	rootCmd.CompletionOptions.DisableDefaultCmd = false
+	RootCmd.CompletionOptions.DisableDefaultCmd = false
 }
