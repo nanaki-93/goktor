@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -33,14 +34,7 @@ type GitModelService struct {
 }
 
 // NewGitService creates a new git service with default logger
-func NewGitService() GitService {
-	return &GitModelService{
-		logger: &DefaultLogger{},
-	}
-}
-
-// NewGitServiceWithLogger creates a new git service with custom logger
-func NewGitServiceWithLogger(logger Logger) GitService {
+func NewGitService(logger Logger) GitService {
 	return &GitModelService{
 		logger: logger,
 	}
@@ -65,8 +59,6 @@ func (gs *GitModelService) fetch(ctx context.Context, repo *git.Repository) erro
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return fmt.Errorf("fetch failed: %w", err)
 	}
-
-	gs.logger.Info("fetch completed successfully")
 	return nil
 }
 
@@ -193,7 +185,7 @@ func (gs *GitModelService) UpdateRemote(ctx context.Context, repoPath string, ne
 		return fmt.Errorf("failed to open repo: %w", err)
 	}
 
-	gs.logger.Info("updating remote", "repo", repoPath)
+	gs.logger.Debug("updating remote", "repo", repoPath)
 
 	cfg, err := repo.Storer.Config()
 	if err != nil {
@@ -215,8 +207,9 @@ func (gs *GitModelService) UpdateRemote(ctx context.Context, repoPath string, ne
 		return fmt.Errorf("failed to set config: %w", err)
 	}
 
-	gs.logger.Info("verifying remote connectivity")
-	if err := gs.fetch(ctx, repo); err != nil {
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := gs.fetch(fetchCtx, repo); err != nil {
 		remoteCfg.URLs = []string{oldRemote}
 		if rollbackErr := repo.Storer.SetConfig(cfg); rollbackErr != nil {
 			return fmt.Errorf("fetch failed and rollback failed: fetch=%w, rollback=%w", err, rollbackErr)
@@ -224,25 +217,16 @@ func (gs *GitModelService) UpdateRemote(ctx context.Context, repoPath string, ne
 		return fmt.Errorf("fetch failed, rollback completed: %w", err)
 	}
 
-	gs.logger.Info("remote updated successfully")
+	gs.logger.Info("remote updated successfully: ", "new remote", newRemoteURL)
 	return nil
 }
 
 // parseRemoteURL handles both HTTP URLs and local file paths
 func parseRemoteURL(newRemote string, oldRemote string) string {
-
-	if isHTTPRemote(oldRemote) {
-		return buildHTTPRemote(newRemote, oldRemote)
+	if isNetworkRemote(oldRemote) {
+		return buildNetworkRemote(newRemote, oldRemote)
 	}
 	return buildLocalRemote(newRemote, oldRemote)
-}
-
-// isHTTPRemote checks if the remote is an HTTP(S) URL
-func isHTTPRemote(remote string) bool {
-	return strings.HasPrefix(remote, "http://") ||
-		strings.HasPrefix(remote, "https://") ||
-		strings.HasPrefix(remote, "git://") ||
-		strings.HasPrefix(remote, "ssh://")
 }
 
 // buildLocalRemote constructs local file path remote
@@ -251,8 +235,49 @@ func buildLocalRemote(newRemote string, oldRemote string) string {
 	return filepath.Join(newRemote, projectName)
 }
 
-// manageRemoteURL handles HTTP(S) URL remotes
-func buildHTTPRemote(newRemote string, oldRemote string) string {
-	projectName := path.Base(strings.TrimSuffix(oldRemote, ".git"))
-	return newRemote + "/" + projectName + ".git"
+func isNetworkRemote(remote string) bool {
+	return strings.HasPrefix(remote, "http://") ||
+		strings.HasPrefix(remote, "https://") ||
+		strings.HasPrefix(remote, "git://") ||
+		strings.HasPrefix(remote, "ssh://") ||
+		strings.Contains(remote, "@")
+}
+
+// buildNetworkRemote handles HTTP(S) and SSH URL remotes
+func buildNetworkRemote(newRemote, oldRemote string) string {
+	var projectName string
+	var repoPath string
+
+	if strings.Contains(oldRemote, ":") && !strings.Contains(oldRemote, "://") {
+		// Handles user@host:path/to/repo.git
+		parts := strings.SplitN(oldRemote, ":", 2)
+		repoPath = parts[1]
+	} else {
+		// Handles https://host/path/to/repo.git
+		repoPath = oldRemote
+	}
+
+	// Find the last separator to get the project name
+	lastSlash := strings.LastIndex(repoPath, "/")
+	lastBackslash := strings.LastIndex(repoPath, "\\")
+
+	lastSeparator := lastSlash
+	if lastBackslash > lastSlash {
+		lastSeparator = lastBackslash
+	}
+
+	if lastSeparator != -1 {
+		projectName = repoPath[lastSeparator+1:]
+	} else {
+		projectName = repoPath
+	}
+	projectName = strings.TrimSuffix(projectName, ".git")
+
+	// For SCP-like SSH syntax (e.g., git@host:repo), use string concatenation.
+	if strings.Contains(newRemote, ":") && !strings.Contains(newRemote, "://") {
+		return newRemote + "/" + projectName + ".git"
+	}
+
+	// For HTTP(S) or other URL schemes, use path.Join.
+	return path.Join(newRemote, projectName+".git")
 }

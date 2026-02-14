@@ -10,7 +10,6 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/nanaki-93/goktor/cmd"
 )
 
 // setupTestDir creates a directory with test repositories
@@ -141,9 +140,9 @@ func TestUpdateRemoteCmd(t *testing.T) {
 				t.Fatalf("failed to change dir: %v", err)
 			}
 
-			cmd.RootCmd.SetArgs(tt.args)
+			MrRepoCmd.SetArgs(tt.args)
 
-			err = cmd.RootCmd.Execute()
+			err = MrRepoCmd.Execute()
 
 			if (err != nil) != tt.wantError {
 				t.Errorf("Execute() error = %v, wantError %v", err, tt.wantError)

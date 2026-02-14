@@ -46,6 +46,5 @@ You can specify a directory to scan or use the current directory.`,
 }
 
 func init() {
-	RootCmd.AddCommand(folderListCmd)
 	folderListCmd.Flags().StringP("dir", "d", "", "Directory to scan (defaults to current directory)")
 }

@@ -283,7 +283,7 @@ func TestGitModelService_FetchLatest(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			service := NewGitService()
+			service := NewGitService(&DefaultLogger{})
 			err := service.FetchLatest(ctx, repoPath)
 
 			if (err != nil) != tt.wantErr {
@@ -350,7 +350,7 @@ func TestGitModelService_UpdateAllBranchesProject(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			service := NewGitService()
+			service := NewGitService(&DefaultLogger{})
 			result, err := service.UpdateAllBranchesProject(ctx, repoPath)
 
 			if (err != nil) != tt.wantErr {
@@ -387,7 +387,7 @@ func TestGitModelService_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	service := NewGitService()
+	service := NewGitService(&DefaultLogger{})
 	_, err := service.UpdateAllBranchesProject(ctx, repoPath)
 
 	if err == nil {
@@ -427,7 +427,7 @@ func TestGitModelService_UpdateRemote(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		service := NewGitService()
+		service := NewGitService(&DefaultLogger{})
 		err = service.UpdateRemote(ctx, tmpDir, "https://github.com/neworg")
 
 		// Should error because fetch will fail (remote doesn't exist)
@@ -474,7 +474,7 @@ func TestGitModelService_UpdateRemote(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		service := NewGitService()
+		service := NewGitService(&DefaultLogger{})
 		err = service.UpdateRemote(ctx, tmpDir, "https://github.com/neworg")
 
 		if err == nil {
@@ -486,7 +486,7 @@ func TestGitModelService_UpdateRemote(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		service := NewGitService()
+		service := NewGitService(&DefaultLogger{})
 		err := service.UpdateRemote(ctx, "/non/existent/path", "https://github.com/neworg")
 
 		if err == nil {
@@ -525,7 +525,7 @@ func TestGitModelService_UpdateRemote(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		service := NewGitService()
+		service := NewGitService(&DefaultLogger{})
 		err = service.UpdateRemote(ctx, tmpDir, "https://github.com/nonexistent")
 
 		// Should error because fetch fails
@@ -576,7 +576,7 @@ func TestGitModelService_UpdateRemote_ProjectNamePreservation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	service := NewGitService()
+	service := NewGitService(&DefaultLogger{})
 	err = service.UpdateRemote(ctx, tmpDir, "https://github.com/newcompany")
 
 	// Will fail fetch, but check the URL construction logic
@@ -653,7 +653,7 @@ func TestGitModelService_UpdateRemote_LocalFilePaths(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		service := NewGitService()
+		service := NewGitService(&DefaultLogger{})
 		err = service.UpdateRemote(ctx, tmpDir, newBareDir)
 
 		if err != nil {
@@ -724,7 +724,7 @@ func TestGitModelService_UpdateRemote_LocalFilePaths(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		service := NewGitService()
+		service := NewGitService(&DefaultLogger{})
 		err = service.UpdateRemote(ctx, tmpDir, newBareDir)
 
 		if err != nil {
@@ -799,7 +799,7 @@ func TestGitModelService_UpdateRemote_LocalFilePaths(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		service := NewGitService()
+		service := NewGitService(&DefaultLogger{})
 		err = service.UpdateRemote(ctx, tmpDir, newBareDir)
 
 		if err != nil {
