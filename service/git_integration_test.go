@@ -428,7 +428,7 @@ func TestGitModelService_UpdateRemote(t *testing.T) {
 		defer cancel()
 
 		service := NewGitService(&DefaultLogger{})
-		err = service.UpdateRemote(ctx, tmpDir, "https://github.com/neworg")
+		err = service.UpdateRemote(ctx, tmpDir, "https://github.com/neworg", false)
 
 		// Should error because fetch will fail (remote doesn't exist)
 		if err == nil {
@@ -475,7 +475,7 @@ func TestGitModelService_UpdateRemote(t *testing.T) {
 		defer cancel()
 
 		service := NewGitService(&DefaultLogger{})
-		err = service.UpdateRemote(ctx, tmpDir, "https://github.com/neworg")
+		err = service.UpdateRemote(ctx, tmpDir, "https://github.com/neworg", false)
 
 		if err == nil {
 			t.Error("UpdateRemote() expected error for missing origin, got nil")
@@ -487,7 +487,7 @@ func TestGitModelService_UpdateRemote(t *testing.T) {
 		defer cancel()
 
 		service := NewGitService(&DefaultLogger{})
-		err := service.UpdateRemote(ctx, "/non/existent/path", "https://github.com/neworg")
+		err := service.UpdateRemote(ctx, "/non/existent/path", "https://github.com/neworg", false)
 
 		if err == nil {
 			t.Error("UpdateRemote() expected error for non-existent path, got nil")
@@ -526,7 +526,7 @@ func TestGitModelService_UpdateRemote(t *testing.T) {
 		defer cancel()
 
 		service := NewGitService(&DefaultLogger{})
-		err = service.UpdateRemote(ctx, tmpDir, "https://github.com/nonexistent")
+		err = service.UpdateRemote(ctx, tmpDir, "https://github.com/nonexistent", false)
 
 		// Should error because fetch fails
 		if err == nil {
@@ -577,7 +577,7 @@ func TestGitModelService_UpdateRemote_ProjectNamePreservation(t *testing.T) {
 	defer cancel()
 
 	service := NewGitService(&DefaultLogger{})
-	err = service.UpdateRemote(ctx, tmpDir, "https://github.com/newcompany")
+	err = service.UpdateRemote(ctx, tmpDir, "https://github.com/newcompany", false)
 
 	// Will fail fetch, but check the URL construction logic
 	repo, _ = git.PlainOpen(tmpDir)
@@ -654,7 +654,7 @@ func TestGitModelService_UpdateRemote_LocalFilePaths(t *testing.T) {
 		defer cancel()
 
 		service := NewGitService(&DefaultLogger{})
-		err = service.UpdateRemote(ctx, tmpDir, newBareDir)
+		err = service.UpdateRemote(ctx, tmpDir, newBareDir, false)
 
 		if err != nil {
 			t.Errorf("UpdateRemote() should succeed with valid local paths, got error: %v", err)
@@ -725,7 +725,7 @@ func TestGitModelService_UpdateRemote_LocalFilePaths(t *testing.T) {
 		defer cancel()
 
 		service := NewGitService(&DefaultLogger{})
-		err = service.UpdateRemote(ctx, tmpDir, newBareDir)
+		err = service.UpdateRemote(ctx, tmpDir, newBareDir, false)
 
 		if err != nil {
 			t.Errorf("UpdateRemote() should succeed, got error: %v", err)
@@ -800,7 +800,7 @@ func TestGitModelService_UpdateRemote_LocalFilePaths(t *testing.T) {
 		defer cancel()
 
 		service := NewGitService(&DefaultLogger{})
-		err = service.UpdateRemote(ctx, tmpDir, newBareDir)
+		err = service.UpdateRemote(ctx, tmpDir, newBareDir, false)
 
 		if err != nil {
 			t.Errorf("UpdateRemote() should succeed, got error: %v", err)

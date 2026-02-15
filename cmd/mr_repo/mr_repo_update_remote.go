@@ -11,18 +11,19 @@ import (
 )
 
 var updateRemoteCmd = &cobra.Command{
-	Use:          "update-remote",
-	Short:        "Update remote URLs for all repositories",
-	Long:         `Update the remote repository URL for all git projects in the current directory.`,
+	Use:   "update-remote",
+	Short: "Update remote URLs for all repositories",
+	Long: `Update the remote repository URL for all git projects in the current directory.
+a new remote URL is required.`,
 	SilenceUsage: true,
+	Args:         cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		newRemote, err := cmd.Flags().GetString("new-remote")
-		if err != nil {
-			return fmt.Errorf("failed to get new-remote flag: %w", err)
-		}
+		force, _ := cmd.Flags().GetBool("force")
+
+		newRemote := args[0]
 
 		if newRemote == "" {
-			return fmt.Errorf("new-remote flag is required")
+			return fmt.Errorf("a new remote arg is required")
 		}
 
 		currDir, err := os.Getwd()
@@ -44,7 +45,7 @@ var updateRemoteCmd = &cobra.Command{
 
 			absPath := filepath.Join(currDir, entry.Name())
 
-			if err := gs.UpdateRemote(context.Background(), absPath, newRemote); err != nil {
+			if err := gs.UpdateRemote(context.Background(), absPath, newRemote, force); err != nil {
 				mrRepoLogger.Warn("UpdateRemote: ", absPath, err.Error())
 			}
 		}
@@ -53,5 +54,5 @@ var updateRemoteCmd = &cobra.Command{
 }
 
 func init() {
-	updateRemoteCmd.Flags().StringP("new-remote", "a", "", "New remote URL (required)")
+	updateRemoteCmd.Flags().BoolP("force", "f", false, "force the update")
 }

@@ -24,7 +24,7 @@ type UpdateResult struct {
 // GitService defines operations for git repositories
 type GitService interface {
 	UpdateAllBranchesProject(ctx context.Context, path string) (*UpdateResult, error)
-	UpdateRemote(ctx context.Context, path string, newRemote string) error
+	UpdateRemote(ctx context.Context, path string, newRemote string, force bool) error
 	FetchLatest(ctx context.Context, path string) error
 }
 
@@ -179,7 +179,7 @@ func (gs *GitModelService) updateBranch(repo *git.Repository, worktree *git.Work
 }
 
 // UpdateRemote updates the origin remote URL and verifies connectivity
-func (gs *GitModelService) UpdateRemote(ctx context.Context, repoPath string, newRemote string) error {
+func (gs *GitModelService) UpdateRemote(ctx context.Context, repoPath string, newRemote string, force bool) error {
 	repo, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return fmt.Errorf("failed to open repo: %w", err)
@@ -210,11 +210,16 @@ func (gs *GitModelService) UpdateRemote(ctx context.Context, repoPath string, ne
 	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := gs.fetch(fetchCtx, repo); err != nil {
+		if force {
+			gs.logger.Warn("fetch failed but force flag is set, skipping rollback", "error", err)
+			return nil
+		}
 		remoteCfg.URLs = []string{oldRemote}
 		if rollbackErr := repo.Storer.SetConfig(cfg); rollbackErr != nil {
 			return fmt.Errorf("fetch failed and rollback failed: fetch=%w, rollback=%w", err, rollbackErr)
 		}
 		return fmt.Errorf("fetch failed, rollback completed: %w", err)
+
 	}
 
 	gs.logger.Info("remote updated successfully: ", "new remote", newRemoteURL)
@@ -245,39 +250,24 @@ func isNetworkRemote(remote string) bool {
 
 // buildNetworkRemote handles HTTP(S) and SSH URL remotes
 func buildNetworkRemote(newRemote, oldRemote string) string {
-	var projectName string
-	var repoPath string
-
+	// Extract the repository path from the old remote
+	repoPath := oldRemote
 	if strings.Contains(oldRemote, ":") && !strings.Contains(oldRemote, "://") {
-		// Handles user@host:path/to/repo.git
 		parts := strings.SplitN(oldRemote, ":", 2)
 		repoPath = parts[1]
-	} else {
-		// Handles https://host/path/to/repo.git
-		repoPath = oldRemote
 	}
 
-	// Find the last separator to get the project name
-	lastSlash := strings.LastIndex(repoPath, "/")
-	lastBackslash := strings.LastIndex(repoPath, "\\")
-
-	lastSeparator := lastSlash
-	if lastBackslash > lastSlash {
-		lastSeparator = lastBackslash
-	}
-
+	// Extract the project name from the repository path
+	lastSeparator := strings.LastIndexAny(repoPath, "/\\")
+	projectName := repoPath
 	if lastSeparator != -1 {
 		projectName = repoPath[lastSeparator+1:]
-	} else {
-		projectName = repoPath
 	}
 	projectName = strings.TrimSuffix(projectName, ".git")
 
-	// For SCP-like SSH syntax (e.g., git@host:repo), use string concatenation.
+	// Construct the new remote URL
 	if strings.Contains(newRemote, ":") && !strings.Contains(newRemote, "://") {
 		return newRemote + "/" + projectName + ".git"
 	}
-
-	// For HTTP(S) or other URL schemes, use path.Join.
 	return path.Join(newRemote, projectName+".git")
 }
