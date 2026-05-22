@@ -28,6 +28,10 @@ type DeleteMergedBranchesResult struct {
 	Skipped []string
 	Failed  []string
 }
+type releaseHistory struct {
+	Branch  string
+	Commits []*object.Commit
+}
 
 // GitService defines operations for git repositories
 type GitService interface {
@@ -318,20 +322,33 @@ func (gs *GitModelService) DeleteMergedBranches(ctx context.Context, repoPath st
 		return nil, err
 	}
 
+	gs.logger.Info("getting release branches")
 	releaseBranches := filterRemoteBranches(remoteBranches, "origin/release/")
-	featureBranches := filterRemoteBranches(remoteBranches, "origin/feature/")
-	bugfixBranches := filterRemoteBranches(remoteBranches, "origin/bugfix/")
-	hotfixBranches := filterRemoteBranches(remoteBranches, "origin/hotfix/")
+	gs.logger.Info("releases branches:", len(releaseBranches))
+	releaseHistories, err := gs.buildReleaseHistories(repo, releaseBranches, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build release histories: %w", err)
+	}
 
-	featureResults, err = gs.deleteMergedBranches(ctx, featureBranches, repo, releaseBranches, cutoff, dryRun)
+	gs.logger.Info("getting feature branches")
+	featureBranches := filterRemoteBranches(remoteBranches, "origin/feature/")
+	gs.logger.Info("feature branches:", len(featureBranches))
+	gs.logger.Info("getting bugfix branches")
+	bugfixBranches := filterRemoteBranches(remoteBranches, "origin/bugfix/")
+	gs.logger.Info("bugfix branches:", len(bugfixBranches))
+	gs.logger.Info("getting hotfix branches")
+	hotfixBranches := filterRemoteBranches(remoteBranches, "origin/hotfix/")
+	gs.logger.Info("hotfix branches:", len(hotfixBranches))
+
+	featureResults, err = gs.deleteMergedBranches(ctx, featureBranches, repo, releaseHistories, cutoff, dryRun)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete feature merged branches: %w", err)
 	}
-	bugfixResults, err := gs.deleteMergedBranches(ctx, bugfixBranches, repo, releaseBranches, cutoff, dryRun)
+	bugfixResults, err := gs.deleteMergedBranches(ctx, bugfixBranches, repo, releaseHistories, cutoff, dryRun)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete bugfix merged branches: %w", err)
 	}
-	hotfixResults, err := gs.deleteMergedBranches(ctx, hotfixBranches, repo, releaseBranches, cutoff, dryRun)
+	hotfixResults, err := gs.deleteMergedBranches(ctx, hotfixBranches, repo, releaseHistories, cutoff, dryRun)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete hotfix merged branches: %w", err)
 	}
@@ -344,14 +361,14 @@ func (gs *GitModelService) DeleteMergedBranches(ctx context.Context, repoPath st
 	return result, nil
 }
 
-func (gs *GitModelService) deleteMergedBranches(ctx context.Context, featureBranches []string, repo *git.Repository, releaseBranches []string, cutoff time.Time, dryRun bool) (*DeleteMergedBranchesResult, error) {
+func (gs *GitModelService) deleteMergedBranches(ctx context.Context, branchesToDelete []string, repo *git.Repository, releaseHistories []releaseHistory, cutoff time.Time, dryRun bool) (*DeleteMergedBranchesResult, error) {
 	result := &DeleteMergedBranchesResult{
 		Deleted: []string{},
 		DryRun:  []string{},
 		Skipped: []string{},
 		Failed:  []string{},
 	}
-	for _, featureBranch := range featureBranches {
+	for _, branchToDelete := range branchesToDelete {
 
 		select {
 		case <-ctx.Done():
@@ -359,28 +376,29 @@ func (gs *GitModelService) deleteMergedBranches(ctx context.Context, featureBran
 		default:
 		}
 
-		mergedAt, mergedInto, ok, err := gs.findMergedIntoReleaseDate(repo, featureBranch, releaseBranches)
+		gs.logger.Info("inspecting feature branch", "branch", branchToDelete)
+		mergedAt, mergedInto, ok, err := gs.findMergedIntoReleaseDate(repo, branchToDelete, releaseHistories, cutoff)
 		if err != nil {
-			result.Failed = append(result.Failed, featureBranch)
-			gs.logger.Error("failed to inspect branch", "branch", featureBranch, "error", err)
+			result.Failed = append(result.Failed, branchToDelete)
+			gs.logger.Error("failed to inspect branch", "branch", branchToDelete, "error", err)
 			continue
 		}
 
 		if !ok {
-			result.Skipped = append(result.Skipped, featureBranch)
+			result.Skipped = append(result.Skipped, branchToDelete)
 			continue
 		}
 
 		if mergedAt.After(cutoff) {
 			gs.logger.Debug("branch merged after cutoff date",
-				"branch", featureBranch,
+				"branch", branchToDelete,
 				"merged_at", mergedAt.Format(time.RFC3339),
 				"merged_into", mergedInto)
-			result.Skipped = append(result.Skipped, featureBranch)
+			result.Skipped = append(result.Skipped, branchToDelete)
 			continue
 		}
 
-		remoteBranchName := strings.TrimPrefix(featureBranch, "origin/")
+		remoteBranchName := strings.TrimPrefix(branchToDelete, "origin/")
 
 		if dryRun {
 			gs.logger.Info("dry-run: would delete remote branch",
@@ -453,7 +471,7 @@ func filterRemoteBranches(branches []string, prefix string) []string {
 	return filtered
 }
 
-func (gs *GitModelService) findMergedIntoReleaseDate(repo *git.Repository, featureBranch string, releaseBranches []string) (time.Time, string, bool, error) {
+func (gs *GitModelService) findMergedIntoReleaseDate(repo *git.Repository, featureBranch string, releaseHistories []releaseHistory, cutoff time.Time) (time.Time, string, bool, error) {
 	featureRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", strings.TrimPrefix(featureBranch, "origin/")), true)
 	if err != nil {
 		return time.Time{}, "", false, fmt.Errorf("failed to resolve feature branch %s: %w", featureBranch, err)
@@ -463,55 +481,75 @@ func (gs *GitModelService) findMergedIntoReleaseDate(repo *git.Repository, featu
 	if err != nil {
 		return time.Time{}, "", false, fmt.Errorf("failed to load feature commit %s: %w", featureBranch, err)
 	}
+	if featureCommit.Committer.When.After(cutoff) {
+		gs.logger.Debug("skipping branch because tip commit is after cutoff",
+			"branch", featureBranch,
+			"commit_date", featureCommit.Committer.When.Format(time.RFC3339),
+			"cutoff", cutoff.Format(time.RFC3339))
+		return time.Time{}, "", false, nil
+	}
 
 	var oldestMergeDate time.Time
 	var oldestReleaseBranch string
 	found := false
 
-	for _, releaseBranch := range releaseBranches {
-		releaseRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", strings.TrimPrefix(releaseBranch, "origin/")), true)
-		if err != nil {
-			return time.Time{}, "", false, fmt.Errorf("failed to resolve release branch %s: %w", releaseBranch, err)
-		}
-
-		releaseCommit, err := repo.CommitObject(releaseRef.Hash())
-		if err != nil {
-			return time.Time{}, "", false, fmt.Errorf("failed to load release commit %s: %w", releaseBranch, err)
-		}
-
-		merged, err := featureCommit.IsAncestor(releaseCommit)
-		if err != nil {
-			return time.Time{}, "", false, fmt.Errorf("failed to check ancestry for %s into %s: %w", featureBranch, releaseBranch, err)
-		}
-		if !merged {
+	for _, release := range releaseHistories {
+		if len(release.Commits) == 0 {
 			continue
 		}
 
-		mergeDate, ok, err := gs.firstParentMergeDate(featureCommit, releaseCommit)
+		latestReleaseCommitBeforeCutoff := release.Commits[len(release.Commits)-1]
+
+		mergedBeforeCutoff, err := featureCommit.IsAncestor(latestReleaseCommitBeforeCutoff)
+		if err != nil {
+			return time.Time{}, "", false, fmt.Errorf("failed to check ancestry for %s into %s: %w", featureBranch, release.Branch, err)
+		}
+
+		if !mergedBeforeCutoff {
+			continue
+		}
+
+		mergeDate, ok, err := gs.firstParentMergeDateFromHistory(featureCommit, release)
 		if err != nil {
 			return time.Time{}, "", false, err
 		}
+
 		if !ok {
 			continue
 		}
 
 		if !found || mergeDate.Before(oldestMergeDate) {
 			oldestMergeDate = mergeDate
-			oldestReleaseBranch = releaseBranch
+			oldestReleaseBranch = release.Branch
 			found = true
 		}
 	}
-
 	return oldestMergeDate, oldestReleaseBranch, found, nil
 }
 
-func (gs *GitModelService) firstParentMergeDate(featureCommit *object.Commit, releaseHead *object.Commit) (time.Time, bool, error) {
+func (gs *GitModelService) firstParentMergeDateFromHistory(featureCommit *object.Commit, release releaseHistory) (time.Time, bool, error) {
+	for _, commit := range release.Commits {
+		isAncestor, err := featureCommit.IsAncestor(commit)
+		if err != nil {
+			return time.Time{}, false, fmt.Errorf("failed to check ancestry in release branch %s: %w", release.Branch, err)
+		}
+
+		if isAncestor {
+			return commit.Committer.When, true, nil
+		}
+	}
+
+	return time.Time{}, false, nil
+}
+
+func (gs *GitModelService) firstParentMergeDateBeforeCutoff(featureCommit *object.Commit, releaseHead *object.Commit, cutoff time.Time) (time.Time, bool, error) {
 	firstParentChain := []*object.Commit{}
 
 	current := releaseHead
 	for {
-		firstParentChain = append(firstParentChain, current)
-
+		if !current.Committer.When.After(cutoff) {
+			firstParentChain = append(firstParentChain, current)
+		}
 		if current.NumParents() == 0 {
 			break
 		}
@@ -557,4 +595,55 @@ func (gs *GitModelService) deleteRemoteBranch(repo *git.Repository, remoteName s
 	}
 
 	return nil
+}
+
+func (gs *GitModelService) buildReleaseHistories(repo *git.Repository, releaseBranches []string, cutoff time.Time) ([]releaseHistory, error) {
+	histories := make([]releaseHistory, 0, len(releaseBranches))
+
+	for _, releaseBranch := range releaseBranches {
+		releaseRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", strings.TrimPrefix(releaseBranch, "origin/")), true)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve release branch %s: %w", releaseBranch, err)
+		}
+
+		current, err := repo.CommitObject(releaseRef.Hash())
+		if err != nil {
+			return nil, fmt.Errorf("failed to load release commit %s: %w", releaseBranch, err)
+		}
+
+		commits := []*object.Commit{}
+
+		for {
+			if !current.Committer.When.After(cutoff) {
+				commits = append(commits, current)
+			}
+
+			if current.NumParents() == 0 {
+				break
+			}
+
+			parent, err := current.Parent(0)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read first parent for release branch %s: %w", releaseBranch, err)
+			}
+
+			current = parent
+		}
+
+		for left, right := 0, len(commits)-1; left < right; left, right = left+1, right-1 {
+			commits[left], commits[right] = commits[right], commits[left]
+		}
+
+		if len(commits) == 0 {
+			gs.logger.Debug("release branch has no commits before cutoff", "branch", releaseBranch)
+			continue
+		}
+
+		histories = append(histories, releaseHistory{
+			Branch:  releaseBranch,
+			Commits: commits,
+		})
+	}
+
+	return histories, nil
 }
