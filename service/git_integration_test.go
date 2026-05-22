@@ -395,6 +395,69 @@ func TestGitModelService_ContextCancellation(t *testing.T) {
 	}
 }
 
+func TestGitModelService_BuildReleaseHistoriesSkipsReleaseHeadAfterCutoff(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	repo, err := git.PlainInit(tmpDir, false)
+	if err != nil {
+		t.Fatalf("failed to init repo: %v", err)
+	}
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("failed to get worktree: %v", err)
+	}
+
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("old content"), 0644); err != nil {
+		t.Fatalf("failed to write old file: %v", err)
+	}
+	if _, err := worktree.Add("test.txt"); err != nil {
+		t.Fatalf("failed to add old file: %v", err)
+	}
+	if _, err := worktree.Commit("old commit", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@example.com",
+			When:  time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC),
+		},
+	}); err != nil {
+		t.Fatalf("failed to create old commit: %v", err)
+	}
+
+	if err := os.WriteFile(testFile, []byte("new release content"), 0644); err != nil {
+		t.Fatalf("failed to write new file: %v", err)
+	}
+	if _, err := worktree.Add("test.txt"); err != nil {
+		t.Fatalf("failed to add new file: %v", err)
+	}
+	newReleaseHash, err := worktree.Commit("new release commit", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@example.com",
+			When:  time.Date(2022, 1, 1, 12, 0, 0, 0, time.UTC),
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create new release commit: %v", err)
+	}
+
+	releaseRef := plumbing.NewHashReference(plumbing.NewRemoteReferenceName("origin", "release/6.12.02"), newReleaseHash)
+	if err := repo.Storer.SetReference(releaseRef); err != nil {
+		t.Fatalf("failed to create release ref: %v", err)
+	}
+
+	service := &GitModelService{logger: &DefaultLogger{}}
+	histories, err := service.buildReleaseHistories(repo, []string{"origin/release/6.12.02"}, time.Date(2021, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("buildReleaseHistories() error = %v", err)
+	}
+
+	if len(histories) != 0 {
+		t.Fatalf("buildReleaseHistories() returned %d histories, want 0 for release head after cutoff", len(histories))
+	}
+}
+
 // TestUpdateRemote tests the UpdateRemote method
 func TestGitModelService_UpdateRemote(t *testing.T) {
 	t.Run("remote update preserves project name", func(t *testing.T) {
