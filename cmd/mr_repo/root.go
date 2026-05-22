@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
+Copyright © 2025 Marco Andreose <andreose.marco93@gmail.com>
 */
 package mr_repo
 
@@ -22,4 +22,5 @@ var MrRepoCmd = &cobra.Command{
 
 func init() {
 	MrRepoCmd.AddCommand(updateRemoteCmd)
+	MrRepoCmd.AddCommand(deleteMergedCmd)
 }

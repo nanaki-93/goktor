@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
+Copyright © 2025 Marco Andreose <andreose.marco93@gmail.com>
 */
 package cmd
 
