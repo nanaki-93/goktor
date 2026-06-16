@@ -45,4 +45,5 @@ func init() {
 	RootCmd.AddCommand(fileListCmd)
 	RootCmd.AddCommand(folderListCmd)
 	RootCmd.AddCommand(mr_repo.MrRepoCmd)
+	RootCmd.AddCommand(diffCmd)
 }

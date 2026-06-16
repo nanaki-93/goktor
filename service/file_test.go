@@ -85,7 +85,7 @@ func TestFileSystemService_ProcessSubDirectoriesRecursively(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := tt.setup(t)
-			service := NewService()
+			service := NewFileService()
 
 			result, err := service.ListDirectoriesWithFilter(tmpDir, tt.filter)
 
@@ -116,7 +116,7 @@ func TestFileSystemService_ConcurrentSubDirectoryProcessing(t *testing.T) {
 		os.WriteFile(filepath.Join(dirPath, "file.txt"), []byte("content"), 0644)
 	}
 
-	service := NewService()
+	service := NewFileService()
 	result, err := service.ListDirectoriesWithFilter(tmpDir, func(d model.Directory) bool { return true })
 
 	if err != nil {
@@ -132,7 +132,7 @@ func TestFileSystemService_ConcurrentSubDirectoryProcessing(t *testing.T) {
 // TestGetDirectoryRecursivelyWithErrors tests error handling in recursive calls
 func TestFileSystemService_RecursiveErrorHandling(t *testing.T) {
 
-	service := NewService()
+	service := NewFileService()
 	_, err := service.ListDirectoriesWithFilter("/nonexistent/path", func(d model.Directory) bool { return true })
 
 	if err == nil {

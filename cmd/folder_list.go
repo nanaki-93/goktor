@@ -33,7 +33,7 @@ You can specify a directory to scan or use the current directory.`,
 			}
 		}
 
-		fs := service.NewService()
+		fs := service.NewFileService()
 
 		res, err := fs.ListDirectories(dirToScan)
 		if err != nil {

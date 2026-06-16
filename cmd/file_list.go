@@ -30,7 +30,7 @@ var fileListCmd = &cobra.Command{
 			}
 		}
 
-		fs := service.NewService()
+		fs := service.NewFileService()
 		res, err := fs.ListFiles(dirToScan)
 		if err != nil {
 			return fmt.Errorf("failed to list files: %w", err)

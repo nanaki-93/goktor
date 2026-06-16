@@ -31,7 +31,7 @@ type FileSystemService struct {
 	logger Logger
 }
 
-func NewService() FileService {
+func NewFileService() FileService {
 	return &FileSystemService{
 		limit:  OneGb * 10, // 1 GB
 		logger: &DefaultLogger{},
