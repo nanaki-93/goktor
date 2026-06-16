@@ -10,8 +10,8 @@ import (
 	"os"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nanaki-93/goktor/model"
 )
@@ -21,7 +21,7 @@ const (
 )
 
 type DiffService interface {
-	CalculateDiff(config model.DiffConfig) (string, error)
+	CalculateDiff(config model.DiffConfig) ([]string, error)
 }
 type DiffFileService struct {
 	logger Logger
@@ -39,27 +39,37 @@ func NewDiffServiceWithLogger(logger Logger) DiffService {
 	}
 }
 
-func (d *DiffFileService) CalculateDiff(config model.DiffConfig) (string, error) {
+func (d *DiffFileService) CalculateDiff(config model.DiffConfig) ([]string, error) {
 
 	leftMap, err := d.populateMap(config.Left, config)
 	if err != nil {
-		return "", fmt.Errorf("error populating left map: %s", err)
+		return []string{}, fmt.Errorf("error populating left map: %s", err)
 	}
-
-	fmt.Println("Comparing content of lenght:" + strconv.Itoa(len(leftMap)))
 
 	rightMap, err := d.populateMap(config.Right, config)
 	if err != nil {
-		return "", fmt.Errorf("error populating right map: %s", err)
+		return []string{}, fmt.Errorf("error populating right map: %s", err)
 	}
 
-	fmt.Println("Comparing content of lenght:" + strconv.Itoa(len(leftMap)))
-
-	resultMap, err := compare(leftMap, rightMap)
+	result, err := compare(leftMap, rightMap)
 	if err != nil {
-		return "", fmt.Errorf("error comparing files: %s", err)
+		return []string{}, fmt.Errorf("error comparing files: %s", err)
 	}
 
+	resultOKFile, err := writeResultFile(config, result.OK, "OK")
+	if err != nil {
+		return []string{}, fmt.Errorf("error writing result file: %s", err)
+	}
+
+	resultKOFile, err := writeResultFile(config, result.KO, "KO")
+	if err != nil {
+		return []string{}, fmt.Errorf("error writing result file: %s", err)
+	}
+
+	return []string{resultOKFile, resultKOFile}, nil
+}
+
+func writeResultFile(config model.DiffConfig, resultMap map[string]string, suffix string) (string, error) {
 	var buf bytes.Buffer
 
 	writer := csv.NewWriter(&buf)
@@ -78,11 +88,10 @@ func (d *DiffFileService) CalculateDiff(config model.DiffConfig) (string, error)
 
 	resultBytes := buf.Bytes()
 
-	resultFile := fmt.Sprintf("%s.%s", config.Left, config.Right)
+	resultFile := fmt.Sprintf("%s.%s.%s.%s", config.Left, config.Right, suffix, time.Now().Format("20060102150405"))
 	if err := os.WriteFile(resultFile, resultBytes, 0644); err != nil {
 		return "", fmt.Errorf("error writing result file: %s", err)
 	}
-
 	return resultFile, nil
 }
 
@@ -104,10 +113,11 @@ func (d *DiffFileService) populateMap(fileName string, config model.DiffConfig) 
 		if len(value) < 3 {
 			return nil, fmt.Errorf("invalid row %d: expected at least 3 columns, got %d", i+1, len(value))
 		}
+
 		keyToAdd := value[0]
 		_, exists := contentMap[value[0]]
 		if exists {
-			keyToAdd = keyToAdd + "-" + strconv.Itoa(i)
+			return nil, fmt.Errorf("duplicate key %s", keyToAdd)
 		}
 		contentMap[keyToAdd] = model.DiffContent{Content: normalizeContentValue(value[1]), Type: value[2]}
 	}
@@ -122,46 +132,27 @@ func normalizeContentValue(value string) string {
 	return value
 }
 
-func compare(content map[string]model.DiffContent, content2 map[string]model.DiffContent) (map[string]string, error) {
-	result := make(map[string]string)
-	fmt.Println("Comparing content of lenght:" + strconv.Itoa(len(content)))
+func compare(leftMap map[string]model.DiffContent, rightMap map[string]model.DiffContent) (model.DiffResult, error) {
+	resultOK := make(map[string]string)
+	resultKO := make(map[string]string)
 
-	for key, value := range content {
-		keyToSearch := strings.Split(key, "-")[0]
-		keysToCompare := make([]string, 0)
+	for key, value := range leftMap {
 
-		for key2, _ := range content2 {
-			splittedKey := strings.Split(key2, "-")[0]
-			if splittedKey == keyToSearch {
-				keysToCompare = append(keysToCompare, key2)
-			}
-		}
-
-		if len(keysToCompare) == 0 {
-			result[key] = "MISSING"
+		rightValue := rightMap[key]
+		isEqual, err := compareWithType(value, rightValue)
+		if err != nil {
+			resultKO[key] = fmt.Sprintf("error comparing values: %s", err)
 			continue
 		}
 
-		result[key] = compareMultipleKeys(keysToCompare, content2, value)
-	}
-	return result, nil
-}
-
-func compareMultipleKeys(keysToCompare []string, content2 map[string]model.DiffContent, value model.DiffContent) string {
-	for _, keyToCompare := range keysToCompare {
-		valToCompare := content2[keyToCompare]
-		isEqual, err := compareWithType(value, valToCompare)
-		if err != nil {
-			return fmt.Sprintf("error comparing values: %s", err)
-		}
-
 		if isEqual {
-			return "OK"
+			resultOK[key] = "OK"
+			continue
 		}
 
+		resultKO[key] = "DIFF"
 	}
-	return "DIFF"
-
+	return model.DiffResult{OK: resultOK, KO: resultKO}, nil
 }
 
 func compareWithType(left model.DiffContent, right model.DiffContent) (bool, error) {

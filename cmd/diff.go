@@ -46,7 +46,7 @@ The output will be a csv file with 2 column, a key and a result Yes for equal co
 			return fmt.Errorf("failed to create diff service: %w", err)
 		}
 
-		resultPath, err := diffServ.CalculateDiff(model.DiffConfig{
+		results, err := diffServ.CalculateDiff(model.DiffConfig{
 			Left:       leftFile,
 			Right:      rightFile,
 			Delimiter:  rune(delimiter[0]),
@@ -56,7 +56,11 @@ The output will be a csv file with 2 column, a key and a result Yes for equal co
 			return fmt.Errorf("failed to run diff service: %w", err)
 		}
 
-		fmt.Println("Your result file is ", resultPath)
+		fmt.Println("Your result files are: ")
+		for i, res := range results {
+			fmt.Printf("%d: %s\n", i+1, res)
+		}
+
 		return nil
 	},
 }

@@ -12,6 +12,11 @@ type DiffContent struct {
 	Type    string
 }
 
+type DiffResult struct {
+	OK map[string]string
+	KO map[string]string
+}
+
 const (
 	JsonType = "json"
 	XmlType  = "xml"
