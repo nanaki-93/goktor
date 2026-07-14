@@ -1,3 +1,4 @@
+// Package cmd
 /*
 Copyright © 2025 Marco Andreose <andreose.marco93@gmail.com>
 */
