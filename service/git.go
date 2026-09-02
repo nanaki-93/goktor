@@ -79,7 +79,6 @@ func (gs *GitModelService) fetch(ctx context.Context, repo *git.Repository) erro
 	return nil
 }
 
-// UpdateAllBranchesProject aligns all local branches with their remote counterparts
 func (gs *GitModelService) UpdateAllBranchesProject(ctx context.Context, repoPath string) (*UpdateResult, error) {
 	result := &UpdateResult{
 		Updated: []string{},
@@ -92,7 +91,6 @@ func (gs *GitModelService) UpdateAllBranchesProject(ctx context.Context, repoPat
 		return nil, fmt.Errorf("failed to open repo: %w", err)
 	}
 
-	// Fetch latest updates from remote
 	gs.logger.Info("fetching latest updates from remote")
 	if err := gs.fetch(ctx, repo); err != nil {
 		return nil, err
@@ -114,9 +112,22 @@ func (gs *GitModelService) UpdateAllBranchesProject(ctx context.Context, repoPat
 		return nil, fmt.Errorf("failed to get worktree: %w", err)
 	}
 
-	// Process each branch
+	originalHead, err := repo.Head()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get original HEAD: %w", err)
+	}
+
+	defer func() {
+
+		if restoreErr := worktree.Checkout(&git.CheckoutOptions{
+			Branch: originalHead.Name(),
+		}); restoreErr != nil {
+			gs.logger.Error("failed to restore original branch state", "error", restoreErr)
+		}
+	}()
+
 	err = branches.ForEach(func(ref *plumbing.Reference) error {
-		// Check context cancellation
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -125,7 +136,6 @@ func (gs *GitModelService) UpdateAllBranchesProject(ctx context.Context, repoPat
 
 		branchName := ref.Name().Short()
 
-		// Skip current branch to protect uncommitted changes
 		if branchName == currentBranch {
 			gs.logger.Debug("skipping current branch", "branch", branchName)
 			result.Skipped = append(result.Skipped, branchName)
@@ -144,9 +154,8 @@ func (gs *GitModelService) UpdateAllBranchesProject(ctx context.Context, repoPat
 		return nil, fmt.Errorf("failed processing branches: %w", err)
 	}
 
-	// Checkout back to original branch
 	if err := worktree.Checkout(&git.CheckoutOptions{
-		Branch: plumbing.NewBranchReferenceName(currentBranch),
+		Branch: originalHead.Name(),
 	}); err != nil {
 		return nil, fmt.Errorf("failed to checkout back to %s: %w", currentBranch, err)
 	}
