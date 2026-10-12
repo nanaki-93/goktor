@@ -30,6 +30,9 @@ The output will be a csv file with 2 column, a key and a result Yes for equal co
 		if err != nil {
 			return fmt.Errorf("failed to get delimiter flag: %w", err)
 		}
+		if len(delimiter) == 0 {
+			return fmt.Errorf("delimiter cannot be empty")
+		}
 
 		output, err := cmd.Flags().GetBool("output")
 		if err != nil {
@@ -49,7 +52,7 @@ The output will be a csv file with 2 column, a key and a result Yes for equal co
 		results, err := diffServ.CalculateDiff(model.DiffConfig{
 			Left:       leftFile,
 			Right:      rightFile,
-			Delimiter:  rune(delimiter[0]),
+			Delimiter:  []rune(delimiter)[0],
 			WithHeader: hasHeader,
 			Output:     output})
 		if err != nil {
