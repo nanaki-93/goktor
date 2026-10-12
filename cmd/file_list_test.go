@@ -44,6 +44,30 @@ func TestFileListCmd(t *testing.T) {
 			args:    []string{"file-list", "-d", "/nonexistent/path"},
 			wantErr: true,
 		},
+		{
+			name: "nonexistent directory via setup only",
+			setup: func(t *testing.T) string {
+				return "/nonexistent/path"
+			},
+			args:    []string{"file-list", "-d"},
+			wantErr: true,
+		},
+		{
+			name: "missing directory flag argument",
+			setup: func(t *testing.T) string {
+				return ""
+			},
+			args:    []string{"file-list", "-d"},
+			wantErr: true,
+		},
+		{
+			name: "list files in empty directory",
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			args:    []string{"file-list", "-d"},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -56,7 +80,7 @@ func TestFileListCmd(t *testing.T) {
 
 			var finalArgs []string
 			finalArgs = append(finalArgs, tt.args...)
-			if tmpDir != "" && tt.args[0] == "file-list" && len(tt.args) > 1 && tt.args[1] == "-d" {
+			if tmpDir != "" && tt.args[0] == "file-list" && len(tt.args) == 2 && tt.args[1] == "-d" {
 				finalArgs = append(finalArgs, tmpDir)
 			}
 
