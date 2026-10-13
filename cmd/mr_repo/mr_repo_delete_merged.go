@@ -19,7 +19,7 @@ var deleteMergedCmd = &cobra.Command{
 		ctx := context.Background()
 		endDate := args[0]
 		if endDate == "" {
-			return fmt.Errorf("a new remote arg is required")
+			return fmt.Errorf("an end date arg is required")
 		}
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
