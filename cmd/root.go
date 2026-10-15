@@ -31,7 +31,9 @@ listing files and their sizes, and managing multiple git repositories.`,
 
 func Execute() {
 	if err := RootCmd.Execute(); err != nil {
-		GlobalLogger.Error("Failed to execute command: \n", err, "\n")
+		if GlobalLogger != nil {
+			GlobalLogger.Error("Failed to execute command: \n", err, "\n")
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
