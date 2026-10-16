@@ -99,6 +99,9 @@ func (fs *FileSystemService) getDirectoryRecursively(path string, filter func(mo
 	if filter(dir) {
 		return dir, nil
 	}
+	if len(dir.SubDirs) > 0 {
+		return model.Directory{SubDirs: dir.SubDirs}, nil
+	}
 	return model.Directory{}, nil
 }
 
@@ -165,6 +168,8 @@ func (fs *FileSystemService) filterResults(results []model.Directory) []model.Di
 	for _, dir := range results {
 		if dir.Name != "" && dir.FullPath != "" {
 			filtered = append(filtered, dir)
+		} else if len(dir.SubDirs) > 0 {
+			filtered = append(filtered, dir.SubDirs...)
 		}
 	}
 	return filtered
@@ -232,8 +237,12 @@ func (fs *FileSystemService) ListFiles(path string) ([]model.FileSystem, error) 
 }
 
 func ReorderDirectory(directory model.Directory) []model.Directory {
-
-	result := directory.FlattenDirectory()
+	var result []model.Directory
+	for _, dir := range directory.FlattenDirectory() {
+		if dir.Name != "" && dir.FullPath != "" {
+			result = append(result, dir)
+		}
+	}
 	sort.Sort(model.BySize(result))
 	return result
 }

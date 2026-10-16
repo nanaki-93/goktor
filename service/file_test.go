@@ -48,11 +48,26 @@ func TestFileSystemService_ProcessSubDirectoriesRecursively(t *testing.T) {
 			setup: func(t *testing.T) string {
 				tmpDir := t.TempDir()
 				os.MkdirAll(filepath.Join(tmpDir, "large"), 0755)
-				os.WriteFile(filepath.Join(tmpDir, "large", "file.txt"), make([]byte, 2*OneGb), 0644)
+				os.WriteFile(filepath.Join(tmpDir, "large", "file.txt"), make([]byte, 2*OneKb), 0644)
 				os.MkdirAll(filepath.Join(tmpDir, "small"), 0755)
 				return tmpDir
 			},
-			filter:        func(d model.Directory) bool { return d.Size > OneGb },
+			filter:        func(d model.Directory) bool { return d.Size > OneKb },
+			expectedCount: 1,
+			wantErr:       false,
+		},
+		{
+			name: "filter retains deeply nested matching subdirectory under non-matching parents",
+			setup: func(t *testing.T) string {
+				tmpDir := t.TempDir()
+				deepMatch := filepath.Join(tmpDir, "emptyParent", "emptyMid", "largeLeaf")
+				os.MkdirAll(deepMatch, 0755)
+				os.WriteFile(filepath.Join(deepMatch, "data.bin"), make([]byte, 2*OneKb), 0644)
+				os.MkdirAll(filepath.Join(tmpDir, "emptyParent", "smallSibling"), 0755)
+				os.WriteFile(filepath.Join(tmpDir, "emptyParent", "smallSibling", "small.txt"), make([]byte, 128), 0644)
+				return tmpDir
+			},
+			filter:        func(d model.Directory) bool { return d.Size > OneKb },
 			expectedCount: 1,
 			wantErr:       false,
 		},
@@ -102,6 +117,154 @@ func TestFileSystemService_ProcessSubDirectoriesRecursively(t *testing.T) {
 				t.Errorf("got %d directories, want %d", len(flatResult), tt.expectedCount)
 			}
 		})
+	}
+}
+
+func TestFileSystemService_ParentFilterPreservesMatchingDescendants(t *testing.T) {
+	t.Run("matching root and grandchild with non-matching intermediate directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		midDir := filepath.Join(tmpDir, "mid")
+		leafDir := filepath.Join(midDir, "leaf")
+		if err := os.MkdirAll(leafDir, 0755); err != nil {
+			t.Fatalf("failed to create directories: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "root.bin"), make([]byte, 2*OneKb), 0644); err != nil {
+			t.Fatalf("failed to write root file: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(midDir, "mid.bin"), make([]byte, 100), 0644); err != nil {
+			t.Fatalf("failed to write mid file: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(leafDir, "leaf.bin"), make([]byte, 3*OneKb), 0644); err != nil {
+			t.Fatalf("failed to write leaf file: %v", err)
+		}
+
+		svc := NewServiceWithLimit(OneKb)
+		result, err := svc.ListDirectoriesWithFilter(tmpDir, svc.GetSizeFilter())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.Name != filepath.Base(tmpDir) {
+			t.Errorf("got root name %q, want %q", result.Name, filepath.Base(tmpDir))
+		}
+		if len(result.SubDirs) != 1 {
+			t.Fatalf("got %d subdirectories under root, want 1", len(result.SubDirs))
+		}
+		if result.SubDirs[0].Name != "leaf" {
+			t.Errorf("got promoted subdirectory %q, want %q", result.SubDirs[0].Name, "leaf")
+		}
+		if result.SubDirs[0].Size != 3*OneKb {
+			t.Errorf("got leaf size %d, want %d", result.SubDirs[0].Size, 3*OneKb)
+		}
+
+		flat := ReorderDirectory(result)
+		if len(flat) != 2 {
+			t.Fatalf("got %d flattened directories, want 2", len(flat))
+		}
+	})
+
+	t.Run("multiple matching descendants under non-matching root and intermediate directories", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		branchA := filepath.Join(tmpDir, "emptyA", "matchA")
+		branchB := filepath.Join(tmpDir, "emptyB", "emptyB2", "matchB")
+		if err := os.MkdirAll(branchA, 0755); err != nil {
+			t.Fatalf("failed to create branchA: %v", err)
+		}
+		if err := os.MkdirAll(branchB, 0755); err != nil {
+			t.Fatalf("failed to create branchB: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(branchA, "a.bin"), make([]byte, 2*OneKb), 0644); err != nil {
+			t.Fatalf("failed to write a.bin: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(branchB, "b.bin"), make([]byte, 4*OneKb), 0644); err != nil {
+			t.Fatalf("failed to write b.bin: %v", err)
+		}
+
+		svc := NewServiceWithLimit(OneKb)
+		result, err := svc.ListDirectoriesWithFilter(tmpDir, svc.GetSizeFilter())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.Name != "" || result.FullPath != "" {
+			t.Errorf("expected unpopulated root container when root fails filter, got Name=%q FullPath=%q", result.Name, result.FullPath)
+		}
+		flat := ReorderDirectory(result)
+		if len(flat) != 2 {
+			t.Fatalf("got %d flattened directories, want 2", len(flat))
+		}
+		for _, dir := range flat {
+			if dir.Name == "" || dir.FullPath == "" {
+				t.Errorf("unexpected blank directory in ReorderDirectory output: %+v", dir)
+			}
+		}
+	})
+
+	t.Run("no directories match filter returns empty directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		subDir := filepath.Join(tmpDir, "sub")
+		if err := os.MkdirAll(subDir, 0755); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(subDir, "tiny.txt"), make([]byte, 64), 0644); err != nil {
+			t.Fatalf("failed to write tiny file: %v", err)
+		}
+
+		svc := NewServiceWithLimit(OneKb)
+		result, err := svc.ListDirectoriesWithFilter(tmpDir, svc.GetSizeFilter())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.Name != "" || result.FullPath != "" || len(result.SubDirs) != 0 {
+			t.Errorf("expected empty directory result, got %+v", result)
+		}
+		if flat := ReorderDirectory(result); len(flat) != 0 {
+			t.Errorf("expected empty flattened slice, got %d elements", len(flat))
+		}
+	})
+}
+
+func TestFileSystemService_GetSizeFilterBoundary(t *testing.T) {
+	tmpDir := t.TempDir()
+	belowDir := filepath.Join(tmpDir, "below")
+	exactDir := filepath.Join(tmpDir, "exact")
+	aboveDir := filepath.Join(tmpDir, "above")
+	if err := os.MkdirAll(belowDir, 0755); err != nil {
+		t.Fatalf("failed to create belowDir: %v", err)
+	}
+	if err := os.MkdirAll(exactDir, 0755); err != nil {
+		t.Fatalf("failed to create exactDir: %v", err)
+	}
+	if err := os.MkdirAll(aboveDir, 0755); err != nil {
+		t.Fatalf("failed to create aboveDir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(belowDir, "file.bin"), make([]byte, OneKb-1), 0644); err != nil {
+		t.Fatalf("failed to write below file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(exactDir, "file.bin"), make([]byte, OneKb), 0644); err != nil {
+		t.Fatalf("failed to write exact file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(aboveDir, "file.bin"), make([]byte, OneKb+1), 0644); err != nil {
+		t.Fatalf("failed to write above file: %v", err)
+	}
+
+	svc := NewServiceWithLimit(OneKb)
+	result, err := svc.ListDirectoriesWithFilter(tmpDir, svc.GetSizeFilter())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.SubDirs) != 1 {
+		t.Fatalf("got %d matching subdirectories, want 1", len(result.SubDirs))
+	}
+	if result.SubDirs[0].Name != "above" {
+		t.Errorf("got subdirectory %q, want %q", result.SubDirs[0].Name, "above")
+	}
+
+	flat := ReorderDirectory(result)
+	if len(flat) != 1 || flat[0].Name != "above" {
+		t.Errorf("expected only 'above' in flattened result, got %+v", flat)
 	}
 }
 
