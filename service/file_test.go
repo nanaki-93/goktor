@@ -292,6 +292,108 @@ func TestFileSystemService_ConcurrentSubDirectoryProcessing(t *testing.T) {
 	}
 }
 
+// TestDeepConcurrentTraversalNoDeadlock verifies shared semaphore does not deadlock on deep trees
+func TestFileSystemService_DeepConcurrentTraversalNoDeadlock(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create 12 top-level directories (> maxWorkers), each with 3 nested subdirectories
+	for i := 1; i <= 12; i++ {
+		parent := filepath.Join(tmpDir, "parent"+strconv.Itoa(i))
+		for j := 1; j <= 3; j++ {
+			child := filepath.Join(parent, "child"+strconv.Itoa(j), "leaf")
+			if err := os.MkdirAll(child, 0755); err != nil {
+				t.Fatalf("failed to create directory %s: %v", child, err)
+			}
+			if err := os.WriteFile(filepath.Join(child, "data.txt"), []byte("abc"), 0644); err != nil {
+				t.Fatalf("failed to create file in %s: %v", child, err)
+			}
+		}
+	}
+
+	// Also exercise lazy semaphore initialization on a struct literal
+	service := &FileSystemService{logger: &DefaultLogger{}}
+	result, err := service.ListDirectories(tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 1 root + 12 parents + 36 children + 36 leaves = 85 directories
+	flatResult := ReorderDirectory(result)
+	if len(flatResult) != 85 {
+		t.Errorf("got %d directories, want 85", len(flatResult))
+	}
+}
+
+// TestRelativePathResolution verifies relative paths are resolved to clean absolute paths
+func TestFileSystemService_RelativePathResolution(t *testing.T) {
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "relsub")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("failed to create subdir: %v", err)
+	}
+	rootFile := filepath.Join(tmpDir, "root.txt")
+	subFile := filepath.Join(subDir, "nested.txt")
+	if err := os.WriteFile(rootFile, []byte("hello"), 0644); err != nil {
+		t.Fatalf("failed to write root file: %v", err)
+	}
+	if err := os.WriteFile(subFile, []byte("world!"), 0644); err != nil {
+		t.Fatalf("failed to write nested file: %v", err)
+	}
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(origWd)
+	})
+
+	service := NewFileService()
+
+	dirResult, err := service.ListDirectories(".")
+	if err != nil {
+		t.Fatalf("ListDirectories('.') failed: %v", err)
+	}
+	if !filepath.IsAbs(dirResult.FullPath) {
+		t.Errorf("expected absolute root FullPath, got %q", dirResult.FullPath)
+	}
+	if dirResult.Name != filepath.Base(dirResult.FullPath) || dirResult.Name == "." {
+		t.Errorf("expected resolved directory base name, got %q", dirResult.Name)
+	}
+	for _, f := range dirResult.Files {
+		if !filepath.IsAbs(f.FullPath) {
+			t.Errorf("expected absolute file FullPath, got %q", f.FullPath)
+		}
+	}
+	for _, sub := range dirResult.SubDirs {
+		if !filepath.IsAbs(sub.FullPath) {
+			t.Errorf("expected absolute subdir FullPath, got %q", sub.FullPath)
+		}
+		for _, sf := range sub.Files {
+			if !filepath.IsAbs(sf.FullPath) {
+				t.Errorf("expected absolute nested file FullPath, got %q", sf.FullPath)
+			}
+		}
+	}
+
+	files, err := service.ListFiles("relsub")
+	if err != nil {
+		t.Fatalf("ListFiles('relsub') failed: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("got %d files, want 1", len(files))
+	}
+	if !filepath.IsAbs(files[0].FullPath) {
+		t.Errorf("expected absolute file path from ListFiles, got %q", files[0].FullPath)
+	}
+	if filepath.Base(files[0].FullPath) != "nested.txt" {
+		t.Errorf("expected nested.txt base name, got %q", filepath.Base(files[0].FullPath))
+	}
+}
+
 // TestGetDirectoryRecursivelyWithErrors tests error handling in recursive calls
 func TestFileSystemService_RecursiveErrorHandling(t *testing.T) {
 

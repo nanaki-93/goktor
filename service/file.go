@@ -27,29 +27,57 @@ type FileService interface {
 	GetSizeFilter() func(model.Directory) bool
 }
 type FileSystemService struct {
-	limit  int64
-	logger Logger
+	limit     int64
+	logger    Logger
+	semaphore chan struct{}
+	semOnce   sync.Once
 }
 
 func NewFileService() FileService {
 	return &FileSystemService{
-		limit:  OneGb * 10, // 1 GB
-		logger: &DefaultLogger{},
+		limit:     OneGb * 10, // 1 GB
+		logger:    &DefaultLogger{},
+		semaphore: make(chan struct{}, maxWorkers),
 	}
 }
 
 func NewServiceWithLogger(logger Logger) FileService {
 	return &FileSystemService{
-		limit:  OneGb * 10,
-		logger: logger,
+		limit:     OneGb * 10,
+		logger:    logger,
+		semaphore: make(chan struct{}, maxWorkers),
 	}
 }
 
 func NewServiceWithLimit(limit int64) FileService {
 	return &FileSystemService{
-		limit:  limit,
-		logger: &DefaultLogger{},
+		limit:     limit,
+		logger:    &DefaultLogger{},
+		semaphore: make(chan struct{}, maxWorkers),
 	}
+}
+
+func (fs *FileSystemService) getSemaphore() chan struct{} {
+	fs.semOnce.Do(func() {
+		if fs.semaphore == nil {
+			fs.semaphore = make(chan struct{}, maxWorkers)
+		}
+	})
+	return fs.semaphore
+}
+
+func (fs *FileSystemService) resolveAbsPath(path string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	fullPath, err := filepath.Abs(path)
+	if err != nil {
+		if fs.logger != nil {
+			fs.logger.Debug("failed to get absolute path", "path", path, "error", err)
+		}
+		return path
+	}
+	return fullPath
 }
 
 func (fs *FileSystemService) PrintFiles(files []model.FileSystem) {
@@ -76,7 +104,8 @@ func (fs *FileSystemService) ListDirectories(path string) (model.Directory, erro
 }
 
 func (fs *FileSystemService) ListDirectoriesWithFilter(path string, filter func(model.Directory) bool) (model.Directory, error) {
-	root, err := fs.getDirectoryRecursively(path, filter)
+	absPath := fs.resolveAbsPath(path)
+	root, err := fs.getDirectoryRecursively(absPath, filter)
 	if err != nil {
 		fs.handleError(err, path)
 		return model.Directory{}, err
@@ -85,12 +114,11 @@ func (fs *FileSystemService) ListDirectoriesWithFilter(path string, filter func(
 }
 
 func (fs *FileSystemService) getDirectoryRecursively(path string, filter func(model.Directory) bool) (model.Directory, error) {
-	entries, err := fs.readDirectory(path)
+	absPath := fs.resolveAbsPath(path)
+	dir, subDirPaths, err := fs.readAndManageDirectory(absPath)
 	if err != nil {
 		return model.Directory{}, err
 	}
-
-	dir, subDirPaths := fs.manageDirEntries(path, entries)
 
 	if len(subDirPaths) > 0 {
 		dir.SubDirs = fs.processSubDirectories(subDirPaths, filter)
@@ -103,6 +131,20 @@ func (fs *FileSystemService) getDirectoryRecursively(path string, filter func(mo
 		return model.Directory{SubDirs: dir.SubDirs}, nil
 	}
 	return model.Directory{}, nil
+}
+
+func (fs *FileSystemService) readAndManageDirectory(path string) (model.Directory, []string, error) {
+	sem := fs.getSemaphore()
+	sem <- struct{}{}
+	defer func() { <-sem }()
+
+	entries, err := fs.readDirectory(path)
+	if err != nil {
+		return model.Directory{}, nil, err
+	}
+
+	dir, subDirPaths := fs.manageDirEntries(path, entries)
+	return dir, subDirPaths, nil
 }
 
 func (fs *FileSystemService) readDirectory(path string) ([]os.DirEntry, error) {
@@ -136,17 +178,13 @@ func (fs *FileSystemService) manageDirEntries(path string, entries []os.DirEntry
 
 func (fs *FileSystemService) processSubDirectories(paths []string, filter func(model.Directory) bool) []model.Directory {
 	results := make([]model.Directory, len(paths))
-	semaphore := make(chan struct{}, maxWorkers)
 
 	var wg sync.WaitGroup
-	var mu sync.Mutex
 
 	for i, subPath := range paths {
 		wg.Add(1)
 		go func(index int, subPath string) {
 			defer wg.Done()
-			semaphore <- struct{}{}        // Acquire semaphore
-			defer func() { <-semaphore }() // Release semaphore
 
 			subDir, err := fs.getDirectoryRecursively(subPath, filter)
 			if err != nil {
@@ -154,9 +192,7 @@ func (fs *FileSystemService) processSubDirectories(paths []string, filter func(m
 				return
 			}
 
-			mu.Lock()
 			results[index] = subDir
-			mu.Unlock()
 		}(i, subPath)
 	}
 	wg.Wait()
@@ -176,15 +212,11 @@ func (fs *FileSystemService) filterResults(results []model.Directory) []model.Di
 }
 
 func (fs *FileSystemService) toDirModel(path string, dir model.Directory, folderSize int64) model.Directory {
-	fullPath, err := filepath.Abs(path)
-	if err != nil {
-		fs.logger.Debug("failed to get absolute path", "path", path, "error", err)
-		fullPath = path
-	}
+	fullPath := fs.resolveAbsPath(path)
 	dir.FileSystem.Size = folderSize
 	dir.FullPath = fullPath
 	dir.IsDir = true
-	dir.Name = filepath.Base(path)
+	dir.Name = filepath.Base(fullPath)
 	return dir
 }
 
@@ -194,11 +226,7 @@ func (fs *FileSystemService) toFileSystemModel(path string, file os.DirEntry) mo
 		fs.logger.Debug("failed to get file info", "file", file, "error", err)
 		return model.FileSystem{Name: file.Name()}
 	}
-	fullPath, err := filepath.Abs(filepath.Join(path, file.Name()))
-	if err != nil {
-		fs.logger.Debug("failed to get absolute path", "path", path, "error", err)
-		fullPath = filepath.Join(path, file.Name())
-	}
+	fullPath := filepath.Join(fs.resolveAbsPath(path), file.Name())
 	subFile := model.FileSystem{
 		Name:     file.Name(),
 		FullPath: fullPath,
@@ -222,7 +250,8 @@ func (fs *FileSystemService) GetSizeFilter() func(model.Directory) bool {
 }
 
 func (fs *FileSystemService) ListFiles(path string) ([]model.FileSystem, error) {
-	entries, err := fs.readDirectory(path)
+	absPath := fs.resolveAbsPath(path)
+	entries, err := fs.readDirectory(absPath)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +259,7 @@ func (fs *FileSystemService) ListFiles(path string) ([]model.FileSystem, error) 
 	var files []model.FileSystem
 	for _, entry := range entries {
 		if !entry.IsDir() {
-			files = append(files, fs.toFileSystemModel(path, entry))
+			files = append(files, fs.toFileSystemModel(absPath, entry))
 		}
 	}
 	return files, nil
