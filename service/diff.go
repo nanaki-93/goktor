@@ -96,17 +96,23 @@ func writeResultFile(config model.DiffConfig, resultMap map[string]string, suffi
 }
 
 func (d *DiffFileService) populateMap(fileName string, config model.DiffConfig) (map[string]model.DiffContent, error) {
-	fileReader, err := getCsvReader(fileName, config.Delimiter)
+	file, err := os.Open(fileName)
 	if err != nil {
 		return nil, fmt.Errorf("error opening file: %s", err)
 	}
+	defer file.Close()
 
-	rawContent, err := fileReader.ReadAll()
-	if err != nil {
-		return nil, fmt.Errorf("error reading file: %s", err)
-	}
+	fileReader := newCsvReader(file, config.Delimiter)
+
 	contentMap := make(map[string]model.DiffContent)
-	for i, value := range rawContent {
+	for i := 0; ; i++ {
+		value, err := fileReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error reading file: %s", err)
+		}
 		if i == 0 && config.WithHeader {
 			continue
 		}
@@ -115,7 +121,7 @@ func (d *DiffFileService) populateMap(fileName string, config model.DiffConfig) 
 		}
 
 		keyToAdd := value[0]
-		_, exists := contentMap[value[0]]
+		_, exists := contentMap[keyToAdd]
 		if exists {
 			return nil, fmt.Errorf("duplicate key %s", keyToAdd)
 		}
@@ -137,8 +143,11 @@ func compare(leftMap map[string]model.DiffContent, rightMap map[string]model.Dif
 	resultKO := make(map[string]string)
 
 	for key, value := range leftMap {
-
-		rightValue := rightMap[key]
+		rightValue, exists := rightMap[key]
+		if !exists {
+			resultKO[key] = "missing key in right"
+			continue
+		}
 		isEqual, err := compareWithType(value, rightValue)
 		if err != nil {
 			resultKO[key] = fmt.Sprintf("error comparing values: %s", err)
@@ -152,6 +161,13 @@ func compare(leftMap map[string]model.DiffContent, rightMap map[string]model.Dif
 
 		resultKO[key] = "DIFF"
 	}
+
+	for key := range rightMap {
+		if _, exists := leftMap[key]; !exists {
+			resultKO[key] = "missing key in left"
+		}
+	}
+
 	return model.DiffResult{OK: resultOK, KO: resultKO}, nil
 }
 
@@ -266,15 +282,20 @@ func writeXMLName(buf *bytes.Buffer, name xml.Name) {
 	buf.WriteString(name.Local)
 }
 
+func newCsvReader(r io.Reader, delim rune) *csv.Reader {
+	reader := csv.NewReader(r)
+	reader.Comma = delimiterOrDefault(delim)
+	reader.LazyQuotes = true
+	reader.ReuseRecord = true
+	return reader
+}
+
 func getCsvReader(path string, delim rune) (*csv.Reader, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("error opening file: %s", err)
 	}
-	reader := csv.NewReader(file)
-	reader.Comma = delimiterOrDefault(delim)
-	reader.LazyQuotes = true
-	return reader, nil
+	return newCsvReader(file, delim), nil
 }
 
 func delimiterOrDefault(delimiter rune) rune {
